@@ -60,12 +60,15 @@ namespace uTikDownloadHelper
 
             foreach (dynamic obj in json)
             {
-                TitleInfo info = new TitleInfo((String)(obj.titleID), (String)(obj.titleKey), (String)(obj.name), (String)(obj.region));
+                if(obj.ticket == "1")
+                {
+                    TitleInfo info = new TitleInfo((String)(obj.titleID), (String)(obj.titleKey), (String)(obj.name), (String)(obj.region));
 
-                if (info.titleID.Length > 8 && allowedTitleTypes.Contains(info.titleID.Substring(0, 8)))
+                    if (info.titleID.Length > 8 && allowedTitleTypes.Contains(info.titleID.Substring(0, 8)))
 
-                if (info.name.Length > 0)
-                    titles.Add(info);
+                        if (info.name.Length > 0)
+                            titles.Add(info);
+                }
             }
 
             titles = titles.OrderBy(o => o.name).ToList();
