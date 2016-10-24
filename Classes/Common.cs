@@ -14,7 +14,23 @@ namespace uTikDownloadHelper
         {
             get
             {
-                return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "uTikDownloadHelper");
+                return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), AssemblyName);
+            }
+        }
+
+        public static string AssemblyName
+        {
+            get
+            {
+                return typeof(Program).Assembly.GetName().Name;
+            }
+        }
+
+        public static Version AsssemblyVersion
+        {
+            get
+            {
+                return typeof(Program).Assembly.GetName().Version;
             }
         }
 
@@ -37,7 +53,7 @@ namespace uTikDownloadHelper
         }
         public static string getUniqueTemporaryDirectory()
         {
-            string tempDirectory = Path.Combine(Path.GetTempPath(), "uTikDownloadHelper." + Path.GetRandomFileName());
+            string tempDirectory = Path.Combine(Path.GetTempPath(), AssemblyName + "." + Path.GetRandomFileName());
             Directory.CreateDirectory(tempDirectory);
             return tempDirectory;
         }
