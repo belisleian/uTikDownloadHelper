@@ -1,10 +1,9 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
 using System.Windows.Forms;
 using System.IO;
 using System.Diagnostics;
+using System.Reflection;
+using System.Linq;
 
 namespace uTikDownloadHelper
 {
@@ -13,24 +12,46 @@ namespace uTikDownloadHelper
         [STAThread]
         static void Main(string[] args)
         {
+            if (Common.Settings.ticketWebsite == null) Common.Settings.ticketWebsite = "";
 
-            OpenFileDialog ofdTik = new OpenFileDialog();
-            ofdTik.Filter = ".tik File|*.tik";
-            string ticketInPath;
-            if (args.Length != 1) {
-                if (ofdTik.ShowDialog() == DialogResult.OK)
+            AppDomain.CurrentDomain.AssemblyResolve += OnResolveAssembly;
+            if (args.Length == 0)
+            {
+                using (frmList frm = new frmList())
                 {
-                    ticketInPath = ofdTik.FileName;
+                    frm.Show();
+                    Application.Run();
                 }
-                else
+
+                return;
+            }
+            
+            string ticketInputPath = args[0];
+
+            Byte[] ticket = { };
+
+            if (ticketInputPath.ToLower().StartsWith("http"))
+            {
+                try
+                {
+                    ticket = (new System.Net.WebClient()).DownloadData(ticketInputPath);
+                } catch (Exception e)
+                {
+                    MessageBox.Show(e.Message.ToString(), "Error Downloading Ticket");
                     return;
+                }
             } else
             {
-                ticketInPath = args[0];
+                ticket = File.ReadAllBytes(ticketInputPath);
             }
 
-            Byte[] ticket = File.ReadAllBytes(ticketInPath);
+            if (ticket.Length < 0x1DC)
+            {
+                MessageBox.Show("Invalid Ticket");
+            }
+
             patchTicket(ref ticket);
+
             string hexID = "";
 
             for (int i = 0x1DC; i < 0x1DC + 8; i++)
@@ -39,10 +60,13 @@ namespace uTikDownloadHelper
             }
             FolderBrowserDialog fbd = new FolderBrowserDialog();
             fbd.Description = "Select the folder to download the files to.";
+            fbd.SelectedPath = Common.Settings.lastPath;
 
             ChooseFolder:
             if (fbd.ShowDialog() == DialogResult.OK)
             {
+                Common.Settings.lastPath = System.IO.Directory.GetParent(fbd.SelectedPath).FullName;
+
                 int directoryItems = 0;
                 directoryItems += Directory.GetFiles(fbd.SelectedPath).Length;
                 directoryItems += Directory.GetDirectories(fbd.SelectedPath).Length;
@@ -53,9 +77,15 @@ namespace uTikDownloadHelper
 
                 if (directoryItems == 0)
                 {
-                    File.WriteAllBytes(nusGrabberPath, uTikDownloadHelper.Properties.Resources.NUSgrabber);
-                    File.WriteAllBytes(wgetPath, uTikDownloadHelper.Properties.Resources.wget);
-                    File.WriteAllBytes(vcRuntime140Path, uTikDownloadHelper.Properties.Resources.vcruntime140);
+                    File.WriteAllBytes(nusGrabberPath, Properties.Resources.NUSgrabber);
+                    File.WriteAllBytes(wgetPath, Properties.Resources.wget);
+                    File.WriteAllBytes(vcRuntime140Path, Properties.Resources.vcruntime140);
+
+                    string downloadPath = Path.Combine(fbd.SelectedPath, hexID);
+
+                    if (!Directory.Exists(downloadPath)) Directory.CreateDirectory(downloadPath);
+
+                    File.Create(Path.Combine(downloadPath, "cetk")).Close();
 
                     var procStIfo = new ProcessStartInfo(nusGrabberPath, hexID);
                     procStIfo.RedirectStandardOutput = false;
@@ -69,21 +99,27 @@ namespace uTikDownloadHelper
 
                     proc.WaitForExit();
 
+                    
+
                     File.Delete(nusGrabberPath);
                     File.Delete(wgetPath);
                     File.Delete(vcRuntime140Path);
 
-                    string downloadPath = fbd.SelectedPath + "\\" + hexID;
-                    if (Directory.Exists(downloadPath))
+                    if (!File.Exists(Path.Combine(downloadPath, "title.tik")))
                     {
-                        foreach (string file in Directory.GetFiles(downloadPath))
-                        {
-                            string name = Path.GetFileName(file);
-
-                            File.Move(file, Path.Combine(fbd.SelectedPath, name));
-                        }
-                        Directory.Delete(downloadPath);
+                        // There was some kind of error with NUSgrabber...
+                        Directory.Delete(downloadPath, true);
+                        MessageBox.Show("There was an error downloading title ID " + hexID.ToUpper(), "Error Downloading", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        return;
                     }
+
+                    foreach (string file in Directory.GetFiles(downloadPath))
+                    {
+                        string name = Path.GetFileName(file);
+
+                        File.Move(file, Path.Combine(fbd.SelectedPath, name));
+                    }
+                    Directory.Delete(downloadPath);
 
                     File.WriteAllBytes(Path.Combine(fbd.SelectedPath, "title.tik"), ticket);
 
@@ -109,6 +145,49 @@ namespace uTikDownloadHelper
         static void writeBytes(Byte[] bytes, Stream output)
         {
             output.Write(bytes, 0, bytes.Length);
+        }
+
+        private static Assembly OnResolveAssembly(object sender, ResolveEventArgs e)
+        {
+            var thisAssembly = Assembly.GetExecutingAssembly();
+
+            // Get the Name of the AssemblyFile
+            var assemblyName = new AssemblyName(e.Name);
+            var dllName = assemblyName.Name + ".dll";
+
+            // Load from Embedded Resources - This function is not called if the Assembly is already
+            // in the same folder as the app.
+            var resources = thisAssembly.GetManifestResourceNames().Where(s => s.EndsWith(dllName));
+            if (resources.Any())
+            {
+
+                // 99% of cases will only have one matching item, but if you don't,
+                // you will have to change the logic to handle those cases.
+                var resourceName = resources.First();
+                using (var stream = thisAssembly.GetManifestResourceStream(resourceName))
+                {
+                    if (stream == null) return null;
+                    var block = new byte[stream.Length];
+
+                    // Safely try to load the assembly.
+                    try
+                    {
+                        stream.Read(block, 0, block.Length);
+                        return Assembly.Load(block);
+                    }
+                    catch (IOException)
+                    {
+                        return null;
+                    }
+                    catch (BadImageFormatException)
+                    {
+                        return null;
+                    }
+                }
+            }
+
+            // in the case the resource doesn't exist, return null.
+            return null;
         }
     }
 }
